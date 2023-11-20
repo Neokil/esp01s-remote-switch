@@ -3,13 +3,19 @@
 #include <ESP8266WebServer.h>
 #include "variables.h"
 
-const short int ONBOARD_LED = 2;
+const short int BUTTON_PIN = 2;
+const short int SWITCH_PIN = 0;
 const unsigned long BAUD = 115200;
- 
+
 ESP8266WebServer webServer(80);
 
-bool handleAuth() {
-  if (!webServer.authenticate(BASIC_AUTH_USERNAME, BASIC_AUTH_PASSWORD)) {
+int buttonState = LOW;
+bool switchOn = false;
+
+bool handleAuth()
+{
+  if (!webServer.authenticate(BASIC_AUTH_USERNAME, BASIC_AUTH_PASSWORD))
+  {
     webServer.requestAuthentication();
     Serial.println("authentication failed");
     return false;
@@ -18,45 +24,71 @@ bool handleAuth() {
   return true;
 }
 
-void handleRoot() {
-  if (!handleAuth()) { return; }
+void handleRoot()
+{
+  if (!handleAuth())
+  {
+    return;
+  }
 
   long int startMillis = millis();
   Serial.println("webserver: /");
-  webServer.send(200, "text/html", 
-    "<h1>ESP01-s Remote Switch</h1><table>"
-    "<tr><td><button onclick=\"fetch('gpio0-on')\">GPIO0 ON</button></td><td><button onclick=\"fetch('gpio0-off')\">GPIO0 OFF</button></a></td></tr>"
-    "<tr><td><button onclick=\"fetch('gpio1-on')\">GPIO1 ON</button></td><td><button onclick=\"fetch('gpio1-off')\">GPIO1 OFF</button></a></td></tr>"
-    "<tr><td><button onclick=\"fetch('gpio2-on')\">GPIO2 ON</button></td><td><button onclick=\"fetch('gpio2-off')\">GPIO2 OFF</button></a></td></tr></table>");
+  webServer.send(200, "text/html", "<h1>ESP01-s Remote Switch</h1><table><tr><td><button onclick=\"fetch('switch-on')\">Switch ON</button></td><td><button onclick=\"fetch('switch-off')\">Switch OFF</button></a></td></tr></table>");
   Serial.print("webserver: request was handled in ");
   Serial.print(millis() - startMillis);
   Serial.println("ms");
 }
 
-void handleGPIORequest(uint8_t pin, uint8_t val) {
-  if (!handleAuth()) { return; }
-  
+void handleSwitchRequest(uint8_t val)
+{
+  if (!handleAuth())
+  {
+    return;
+  }
+
   long int startMillis = millis();
-  Serial.print("webserver: /gpio");
-  Serial.print(pin);
-  if (val == LOW) {
+  Serial.print("webserver: /switch");
+  if (val == LOW)
+  {
     Serial.println("-on");
+    switchOn = true;
   }
-  else {
+  else
+  {
     Serial.println("-off");
+    switchOn = false;
   }
-  digitalWrite(pin, val);
+  digitalWrite(SWITCH_PIN, val);
   webServer.send(200, "", "");
   Serial.print("webserver: request was handled in ");
   Serial.print(millis() - startMillis);
   Serial.println("ms");
 }
 
-void setup() {
-  pinMode(ONBOARD_LED, OUTPUT);
-  pinMode(0, OUTPUT);
-  pinMode(1, OUTPUT);
-  pinMode(2, OUTPUT);
+void flipSwitch()
+{
+  digitalWrite(SWITCH_PIN, switchOn ? HIGH : LOW);
+  switchOn = !switchOn;
+}
+
+void handleButton()
+{
+  int currentButtonState = digitalRead(BUTTON_PIN);
+  if (buttonState != currentButtonState)
+  {
+    buttonState = currentButtonState;
+
+    if (buttonState == LOW)
+    {
+      flipSwitch();
+    }
+  }
+}
+
+void setup()
+{
+  pinMode(SWITCH_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT);
 
   Serial.begin(BAUD);
   Serial.println();
@@ -65,21 +97,17 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   webServer.on("/", handleRoot);
-  webServer.on("/gpio0-on", [&](){ handleGPIORequest(0, LOW); });
-  webServer.on("/gpio0-off", [&](){ handleGPIORequest(0, HIGH); });
-  webServer.on("/gpio1-on", [&](){ handleGPIORequest(1, LOW); });
-  webServer.on("/gpio1-off", [&](){ handleGPIORequest(1, HIGH); });
-  webServer.on("/gpio2-on", [&](){ handleGPIORequest(2, LOW); });
-  webServer.on("/gpio2-off", [&](){ handleGPIORequest(2, HIGH); });
+  webServer.on("/switch-on", [&]()
+               { handleSwitchRequest(LOW); });
+  webServer.on("/switch-off", [&]()
+               { handleSwitchRequest(HIGH); });
   webServer.begin();
   Serial.println("webserver: ready for connections");
 
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED)
   {
-    digitalWrite(ONBOARD_LED, LOW);
-    delay(500);
-    digitalWrite(ONBOARD_LED, HIGH);
+    Serial.print(".");
     delay(500);
   }
   Serial.println();
@@ -88,6 +116,8 @@ void setup() {
   Serial.println(WiFi.localIP());
 }
 
-void loop() {
+void loop()
+{
   webServer.handleClient();
+  handleButton();
 }
